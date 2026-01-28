@@ -1,3 +1,4 @@
+/* global __app_id, __firebase_config, __initial_auth_token */
 import React, { useState, useMemo, useEffect } from 'react';
 import { 
   Search, 
@@ -15,13 +16,14 @@ import {
   Download,
   Lock,
   Cloud,
-  Wallet
+  Wallet,
+  KeyRound
 } from 'lucide-react';
 
 // External Scripts for XLSX
 const XLSX_SCRIPT_URL = 'https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js';
 
-// Firebase Scripts - We load these via Script tags to avoid "Dynamic Require" errors in environments that don't support ESM imports in the build step
+// Firebase Scripts - Loaded via Script tags to avoid build-time dependency resolution issues
 const FIREBASE_APP_URL = 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js';
 const FIREBASE_AUTH_URL = 'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js';
 const FIREBASE_FIRESTORE_URL = 'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js';
@@ -35,15 +37,18 @@ export default function App() {
   const [isUploading, setIsUploading] = useState(false);
   const [copiedId, setCopiedId] = useState(null);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [showPinModal, setShowPinModal] = useState(false);
+  const [pinInput, setPinInput] = useState('');
+  const [pinError, setPinError] = useState(false);
   const [firebaseReady, setFirebaseReady] = useState(false);
 
   // References to global firebase objects (compat version)
   const [db, setDb] = useState(null);
   const [auth, setAuth] = useState(null);
 
+  const CORRECT_PIN = "5256";
   const appId = typeof __app_id !== 'undefined' ? __app_id : 'mto-lookup-app';
 
-  // Helper for formatting date to MM/DD/YYYY
   const formatAsMMDDYYYY = (dateInput) => {
     let date;
     if (dateInput instanceof Date) {
@@ -59,11 +64,9 @@ export default function App() {
       const parsed = new Date(strDate);
       if (!isNaN(parsed.getTime())) date = parsed;
     }
-
     if (!date || isNaN(date.getTime())) {
       return (dateInput === null || dateInput === undefined) ? "N/A" : String(dateInput).trim();
     }
-
     const mm = String(date.getMonth() + 1).padStart(2, '0');
     const dd = String(date.getDate()).padStart(2, '0');
     const yyyy = date.getFullYear();
@@ -85,36 +88,21 @@ export default function App() {
   useEffect(() => {
     const initAll = async () => {
       try {
-        // Load XLSX and Firebase Compat SDKs
-        await Promise.all([
-          loadScript(XLSX_SCRIPT_URL),
-          loadScript(FIREBASE_APP_URL)
-        ]);
-        // Auth and Firestore depend on App
-        await Promise.all([
-          loadScript(FIREBASE_AUTH_URL),
-          loadScript(FIREBASE_FIRESTORE_URL)
-        ]);
-
+        await Promise.all([loadScript(XLSX_SCRIPT_URL), loadScript(FIREBASE_APP_URL)]);
+        await Promise.all([loadScript(FIREBASE_AUTH_URL), loadScript(FIREBASE_FIRESTORE_URL)]);
         const firebaseConfig = JSON.parse(__firebase_config);
-        // Use compat versions to avoid import issues
         if (!window.firebase.apps.length) {
           window.firebase.initializeApp(firebaseConfig);
         }
-        
         const firebaseAuth = window.firebase.auth();
         const firebaseDb = window.firebase.firestore();
-        
         setAuth(firebaseAuth);
         setDb(firebaseDb);
-
-        // Handle Auth
         if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
           await firebaseAuth.signInWithCustomToken(__initial_auth_token);
         } else {
           await firebaseAuth.signInAnonymously();
         }
-
         firebaseAuth.onAuthStateChanged(setUser);
         setFirebaseReady(true);
       } catch (err) {
@@ -126,10 +114,7 @@ export default function App() {
 
   useEffect(() => {
     if (!user || !db) return;
-    
-    // Path: /artifacts/{appId}/public/data/reports/latest
     const reportRef = db.doc(`artifacts/${appId}/public/data/reports/latest`);
-    
     const unsubscribe = reportRef.onSnapshot((docSnap) => {
       if (docSnap.exists) {
         const report = docSnap.data();
@@ -144,9 +129,30 @@ export default function App() {
       console.error("Firestore error:", err);
       setIsLoading(false);
     });
-
     return () => unsubscribe();
-  }, [user, db]);
+  }, [user, db, appId]);
+
+  const handleAdminToggle = () => {
+    if (isAdmin) {
+      setIsAdmin(false);
+    } else {
+      setShowPinModal(true);
+      setPinInput('');
+      setPinError(false);
+    }
+  };
+
+  const handlePinSubmit = (e) => {
+    e.preventDefault();
+    if (pinInput === CORRECT_PIN) {
+      setIsAdmin(true);
+      setShowPinModal(false);
+      setPinError(false);
+    } else {
+      setPinError(true);
+      setPinInput('');
+    }
+  };
 
   const cleanVal = (v) => {
     if (v === null || v === undefined) return "";
@@ -157,16 +163,13 @@ export default function App() {
     const file = e.target.files[0];
     if (!file || !window.XLSX || !user || !db) return;
     setIsUploading(true);
-
     const reader = new FileReader();
     reader.onload = async (evt) => {
       try {
         const wb = window.XLSX.read(evt.target.result, { type: 'array', cellDates: true });
         const sheet = wb.Sheets[wb.SheetNames[0]];
         const raw = window.XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" });
-
         const M = { name: 1, acct: 11, due: 4, amt: 5, ovr: 7, bps: 3, upl: 14 };
-
         const formatted = raw
           .filter(r => r[M.name] && cleanVal(r[M.name]).length > 2 && cleanVal(r[M.name]).toLowerCase() !== "name")
           .map((r, i) => ({
@@ -179,14 +182,12 @@ export default function App() {
             bps: parseFloat(String(r[M.bps]).replace(/[^0-9.-]+/g, "")) || 0,
             upl: cleanVal(r[M.upl] || "N/A")
           }));
-
         const reportRef = db.doc(`artifacts/${appId}/public/data/reports/latest`);
         await reportRef.set({
           items: formatted,
           updatedAt: new Date(),
           uploaderId: user.uid
         });
-        
         setIsAdmin(false); 
       } catch (err) {
         console.error("Upload failed", err);
@@ -228,12 +229,57 @@ export default function App() {
             </div>
           </div>
           <button 
-            onClick={() => setIsAdmin(!isAdmin)}
-            className="p-3 bg-white/10 backdrop-blur-md rounded-2xl text-white hover:bg-white/20 transition-colors"
+            onClick={handleAdminToggle}
+            className={`p-3 backdrop-blur-md rounded-2xl text-white transition-all ${isAdmin ? 'bg-indigo-500 shadow-lg' : 'bg-white/10 hover:bg-white/20'}`}
           >
             {isAdmin ? <X className="w-5 h-5" /> : <Lock className="w-5 h-5" />}
           </button>
         </header>
+
+        {showPinModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center px-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
+            <div className="bg-white rounded-[32px] p-8 w-full max-w-xs shadow-2xl animate-in zoom-in-95 duration-200">
+              <div className="flex flex-col items-center">
+                <div className="w-12 h-12 bg-indigo-100 rounded-2xl flex items-center justify-center mb-4">
+                  <KeyRound className="w-6 h-6 text-indigo-600" />
+                </div>
+                <h3 className="font-black uppercase tracking-tight text-slate-800 text-lg">Admin Access</h3>
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-6">Enter PIN to continue</p>
+                
+                <form onSubmit={handlePinSubmit} className="w-full space-y-4">
+                  <input 
+                    type="password"
+                    maxLength={4}
+                    autoFocus
+                    value={pinInput}
+                    onChange={(e) => {
+                      setPinInput(e.target.value.replace(/\D/g, ''));
+                      setPinError(false);
+                    }}
+                    placeholder="••••"
+                    className={`w-full text-center text-2xl tracking-[0.5em] font-black py-4 rounded-2xl border-2 transition-all outline-none ${pinError ? 'bg-red-50 border-red-200 text-red-500' : 'bg-slate-50 border-slate-100 text-slate-800 focus:border-indigo-500'}`}
+                  />
+                  {pinError && <p className="text-[10px] font-bold text-red-500 text-center uppercase tracking-widest">Invalid PIN Code</p>}
+                  <div className="flex space-x-2">
+                    <button 
+                      type="button"
+                      onClick={() => setShowPinModal(false)}
+                      className="flex-1 py-4 rounded-2xl bg-slate-100 text-slate-600 font-black text-[10px] uppercase tracking-widest hover:bg-slate-200 transition-colors"
+                    >
+                      Cancel
+                    </button>
+                    <button 
+                      type="submit"
+                      className="flex-1 py-4 rounded-2xl bg-indigo-600 text-white font-black text-[10px] uppercase tracking-widest hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-200"
+                    >
+                      Verify
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          </div>
+        )}
 
         {isAdmin && (
           <div className="bg-white rounded-[32px] shadow-2xl p-6 border-4 border-indigo-500 animate-in zoom-in-95">
