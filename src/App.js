@@ -71,7 +71,6 @@
                 
                 const strVal = String(val).trim();
                 
-                // Handle YYYYMMDD (8 digits) format directly by slicing
                 if (/^\d{8}$/.test(strVal)) {
                     const y = strVal.substring(0, 4);
                     const m = strVal.substring(4, 6);
@@ -79,19 +78,17 @@
                     return `${m}/${d}/${y}`;
                 }
                 
-                // Handle JS Date objects if SheetJS returns them
                 if (val instanceof Date) {
                     const month = String(val.getMonth() + 1).padStart(2, '0');
                     const day = String(val.getDate()).padStart(2, '0');
                     return `${month}/${day}/${val.getFullYear()}`;
                 }
 
-                // If it's already in MM/DD/YYYY format, just return it
                 if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(strVal)) {
                     return strVal;
                 }
 
-                return strVal; // Return raw if we can't identify a specific format
+                return strVal;
             };
 
             useEffect(() => {
@@ -139,7 +136,6 @@
                 reader.onload = async (evt) => {
                     try {
                         const dataArr = new Uint8Array(evt.target.result);
-                        // CellDates set to false to treat input as raw string/numbers
                         const wb = window.XLSX.read(dataArr, { type: 'array', cellDates: false });
                         const sheet = wb.Sheets[wb.SheetNames[0]];
                         const raw = window.XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" });
