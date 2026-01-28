@@ -68,26 +68,19 @@
 
             const formatAsMMDDYYYY = (val) => {
                 if (!val || val === "") return "N/A";
-                
                 const strVal = String(val).trim();
-                
                 if (/^\d{8}$/.test(strVal)) {
                     const y = strVal.substring(0, 4);
                     const m = strVal.substring(4, 6);
                     const d = strVal.substring(6, 8);
                     return `${m}/${d}/${y}`;
                 }
-                
                 if (val instanceof Date) {
                     const month = String(val.getMonth() + 1).padStart(2, '0');
                     const day = String(val.getDate()).padStart(2, '0');
                     return `${month}/${day}/${val.getFullYear()}`;
                 }
-
-                if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(strVal)) {
-                    return strVal;
-                }
-
+                if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(strVal)) return strVal;
                 return strVal;
             };
 
@@ -139,9 +132,7 @@
                         const wb = window.XLSX.read(dataArr, { type: 'array', cellDates: false });
                         const sheet = wb.Sheets[wb.SheetNames[0]];
                         const raw = window.XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" });
-                        
                         setDebugRows(raw.slice(0, 15));
-
                         const formatted = raw
                             .filter(r => r[M.name] && String(r[M.name]).trim().length > 2 && String(r[M.name]).toLowerCase() !== "name")
                             .map((r, i) => ({
@@ -154,7 +145,6 @@
                                 bps: parseFloat(String(r[M.bps]).replace(/[^0-9.-]+/g, "")) || 0,
                                 upl: String(r[M.upl] || "N/A").trim()
                             }));
-
                         if (user) {
                             await db.doc(`artifacts/${appId}/public/data/reports/latest`).set({
                                 items: formatted,
@@ -193,7 +183,6 @@
                                 {isAdmin ? <Icons.X /> : <Icons.Lock />}
                             </button>
                         </header>
-
                         {showPinModal && (
                             <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
                                 <div className="bg-white rounded-[32px] p-8 w-full max-w-xs shadow-2xl">
@@ -205,7 +194,6 @@
                                 </div>
                             </div>
                         )}
-
                         {isAdmin && (
                             <div className="bg-white rounded-[32px] p-6 shadow-2xl border-4 border-indigo-500 space-y-4">
                                 <div className="flex justify-between items-center">
@@ -216,7 +204,6 @@
                                         </button>
                                     )}
                                 </div>
-
                                 {showDebug && debugRows && (
                                     <div className="bg-slate-900 rounded-2xl p-4 overflow-x-auto hide-scrollbar border-2 border-amber-500/30">
                                         <table className="w-full text-left">
@@ -243,7 +230,6 @@
                                         </table>
                                     </div>
                                 )}
-
                                 <div className={`relative border-2 border-dashed rounded-2xl p-8 text-center transition-colors ${uploadStatus === 'success' ? 'bg-green-50 border-green-200' : 'bg-indigo-50 border-indigo-200'}`}>
                                     <input type="file" onChange={handleFileUpload} className="absolute inset-0 opacity-0 cursor-pointer" />
                                     {isUploading ? <div className="w-8 h-8 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin mx-auto" /> : 
@@ -255,14 +241,12 @@
                                 </div>
                             </div>
                         )}
-
                         <div className="bg-white rounded-[24px] shadow-xl p-4">
                             <div className="relative">
                                 <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300"><Icons.Search /></div>
                                 <input type="text" placeholder="Start typing name..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full bg-slate-50 rounded-xl py-4 pl-12 pr-4 text-sm font-bold outline-none focus:ring-2 focus:ring-indigo-500/10" />
                             </div>
                         </div>
-
                         <div className="space-y-4">
                             {filtered.map(item => (
                                 <div key={item.id} className="bg-white rounded-[32px] p-6 shadow-md border border-slate-100">
