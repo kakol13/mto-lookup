@@ -164,7 +164,7 @@ export default function App() {
       }
       setIsLoading(false);
     }, (err) => {
-      console.error("Firestore error:", err);
+      console.error("Firestore Read error:", err);
       setIsLoading(false);
     });
     return () => unsubscribe();
@@ -199,7 +199,16 @@ export default function App() {
 
   const handleFileUpload = (e) => {
     const file = e.target.files[0];
-    if (!file || !window.XLSX || !user || !db) return;
+    if (!file) return;
+    if (!window.XLSX) {
+      console.error("XLSX library not loaded yet");
+      return;
+    }
+    if (!user || !db) {
+      console.error("Firebase not authenticated or DB not ready", { user, db });
+      return;
+    }
+
     setIsUploading(true);
     const reader = new FileReader();
     reader.onload = async (evt) => {
@@ -207,7 +216,10 @@ export default function App() {
         const wb = window.XLSX.read(evt.target.result, { type: 'array', cellDates: true });
         const sheet = wb.Sheets[wb.SheetNames[0]];
         const raw = window.XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" });
+        
+        // Mapping based on your specific Excel structure
         const M = { name: 1, acct: 11, due: 4, amt: 5, ovr: 7, bps: 3, upl: 14 };
+        
         const formatted = raw
           .filter(r => r[M.name] && cleanVal(r[M.name]).length > 2 && cleanVal(r[M.name]).toLowerCase() !== "name")
           .map((r, i) => ({
@@ -220,15 +232,23 @@ export default function App() {
             bps: parseFloat(String(r[M.bps]).replace(/[^0-9.-]+/g, "")) || 0,
             upl: cleanVal(r[M.upl] || "N/A")
           }));
+
         const reportRef = db.doc(`artifacts/${appId}/public/data/reports/latest`);
+        
         await reportRef.set({
           items: formatted,
           updatedAt: new Date(),
           uploaderId: user.uid
         });
+        
+        console.log("Upload successful!");
         setIsAdmin(false); 
       } catch (err) {
-        console.error("Upload failed", err);
+        console.error("Upload process error:", err);
+        // Alerting locally for debugging if upload fails
+        if (err.code === 'permission-denied') {
+          console.error("CRITICAL: Check your Firestore Security Rules!");
+        }
       } finally {
         setIsUploading(false);
       }
