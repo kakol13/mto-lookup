@@ -45,7 +45,9 @@ export default function App() {
   const [db, setDb] = useState(null);
 
   const CORRECT_PIN = "5256";
-  const appId = typeof __app_id !== 'undefined' ? __app_id : 'mto-lookup-app';
+  
+  // Vercel Compatibility: Use process.env if the global artifacts variables are missing
+  const appId = typeof __app_id !== 'undefined' ? __app_id : (process.env.REACT_APP_APP_ID || 'mto-lookup-app');
 
   const formatAsMMDDYYYY = (dateInput) => {
     let date;
@@ -72,13 +74,16 @@ export default function App() {
   };
 
   const loadScript = (url) => {
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve) => {
       if (document.querySelector(`script[src="${url}"]`)) return resolve();
       const script = document.createElement('script');
       script.src = url;
       script.async = true;
       script.onload = resolve;
-      script.onerror = reject;
+      script.onerror = () => {
+        console.warn(`Failed to load script: ${url}`);
+        resolve();
+      };
       document.head.appendChild(script);
     });
   };
@@ -86,27 +91,63 @@ export default function App() {
   useEffect(() => {
     const initAll = async () => {
       try {
-        await Promise.all([loadScript(XLSX_SCRIPT_URL), loadScript(FIREBASE_APP_URL)]);
-        await Promise.all([loadScript(FIREBASE_AUTH_URL), loadScript(FIREBASE_FIRESTORE_URL)]);
-        const firebaseConfig = JSON.parse(__firebase_config);
-        if (!window.firebase.apps.length) {
-          window.firebase.initializeApp(firebaseConfig);
+        await loadScript(FIREBASE_APP_URL);
+        await Promise.all([
+          loadScript(XLSX_SCRIPT_URL),
+          loadScript(FIREBASE_AUTH_URL),
+          loadScript(FIREBASE_FIRESTORE_URL)
+        ]);
+
+        if (!window.firebase) throw new Error("Firebase script failed");
+
+        // Vercel Compatibility: Handle missing config
+        let config;
+        if (typeof __firebase_config !== 'undefined') {
+          config = JSON.parse(__firebase_config);
+        } else if (process.env.REACT_APP_FIREBASE_CONFIG) {
+          config = JSON.parse(process.env.REACT_APP_FIREBASE_CONFIG);
         }
+
+        if (!config) {
+          console.error("No Firebase configuration found!");
+          setIsLoading(false);
+          setFirebaseReady(true);
+          return;
+        }
+
+        if (!window.firebase.apps.length) {
+          window.firebase.initializeApp(config);
+        }
+        
         const firebaseAuth = window.firebase.auth();
         const firebaseDb = window.firebase.firestore();
         setDb(firebaseDb);
+
+        firebaseAuth.onAuthStateChanged((u) => {
+          setUser(u);
+          setFirebaseReady(true);
+        });
+
         if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-          await firebaseAuth.signInWithCustomToken(__initial_auth_token);
+          await firebaseAuth.signInWithCustomToken(__initial_auth_token).catch(() => firebaseAuth.signInAnonymously());
         } else {
-          await firebaseAuth.signInAnonymously();
+          await firebaseAuth.signInAnonymously().catch(console.error);
         }
-        firebaseAuth.onAuthStateChanged(setUser);
-        setFirebaseReady(true);
+
       } catch (err) {
         console.error("Initialization failed", err);
+        setIsLoading(false);
+        setFirebaseReady(true);
       }
     };
     initAll();
+    
+    const timer = setTimeout(() => {
+        setIsLoading(false);
+        setFirebaseReady(true);
+    }, 15000);
+    
+    return () => clearTimeout(timer);
   }, []);
 
   useEffect(() => {
@@ -206,6 +247,7 @@ export default function App() {
       <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center text-white p-6">
         <Loader2 className="w-12 h-12 text-indigo-500 animate-spin mb-4" />
         <p className="font-black uppercase tracking-widest text-[10px] animate-pulse">Syncing Cloud Database...</p>
+        <p className="text-[9px] text-slate-500 mt-8 text-center max-w-[200px]">Checking configuration...</p>
       </div>
     );
   }
@@ -315,75 +357,81 @@ export default function App() {
               <p className="font-black uppercase tracking-widest text-xs">Search to view results</p>
             </div>
           ) : (
-            filtered.map(item => (
-              <div key={item.id} className="bg-white rounded-[32px] p-6 shadow-lg border border-slate-100 animate-in fade-in slide-in-from-bottom-4">
-                <div className="flex items-center space-x-4 mb-6">
-                  <div className="w-14 h-14 bg-gradient-to-br from-indigo-500 to-blue-600 rounded-2xl flex items-center justify-center shrink-0 shadow-lg shadow-indigo-100">
-                    <User className="text-white w-7 h-7" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <h3 className="font-black text-slate-800 uppercase truncate text-lg tracking-tight leading-tight">{item.name}</h3>
-                    <div className="flex items-center mt-1">
-                      <Users className="w-3.5 h-3.5 text-indigo-400 mr-2" />
-                      <p className="text-[10px] text-slate-400 font-bold uppercase truncate tracking-widest">
-                        Upline: <span className="text-indigo-600 font-black">{item.upl}</span>
-                      </p>
+            filtered.length > 0 ? (
+              filtered.map(item => (
+                <div key={item.id} className="bg-white rounded-[32px] p-6 shadow-lg border border-slate-100 animate-in fade-in slide-in-from-bottom-4">
+                  <div className="flex items-center space-x-4 mb-6">
+                    <div className="w-14 h-14 bg-gradient-to-br from-indigo-500 to-blue-600 rounded-2xl flex items-center justify-center shrink-0 shadow-lg shadow-indigo-100">
+                      <User className="text-white w-7 h-7" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <h3 className="font-black text-slate-800 uppercase truncate text-lg tracking-tight leading-tight">{item.name}</h3>
+                      <div className="flex items-center mt-1">
+                        <Users className="w-3.5 h-3.5 text-indigo-400 mr-2" />
+                        <p className="text-[10px] text-slate-400 font-bold uppercase truncate tracking-widest">
+                          Upline: <span className="text-indigo-600 font-black">{item.upl}</span>
+                        </p>
+                      </div>
                     </div>
                   </div>
-                </div>
 
-                <div 
-                  onClick={() => {
-                    const text = item.acct;
-                    if (navigator.clipboard && navigator.clipboard.writeText) {
-                      navigator.clipboard.writeText(text);
-                    } else {
-                      const t = document.createElement('textarea'); t.value = text; document.body.appendChild(t); t.select(); document.execCommand('copy'); document.body.removeChild(t);
-                    }
-                    setCopiedId(item.id); setTimeout(() => setCopiedId(null), 1500);
-                  }}
-                  className="bg-slate-900 rounded-[24px] p-5 flex justify-between items-center cursor-pointer hover:bg-slate-800 transition-all active:scale-95"
-                >
-                  <div>
-                    <p className="text-[8px] font-black text-slate-500 uppercase tracking-[0.3em] mb-2">Account Number</p>
-                    <p className="text-2xl font-black text-white tracking-[0.1em] uppercase italic leading-none">{item.acct}</p>
+                  <div 
+                    onClick={() => {
+                      const text = item.acct;
+                      if (navigator.clipboard && navigator.clipboard.writeText) {
+                        navigator.clipboard.writeText(text);
+                      } else {
+                        const t = document.createElement('textarea'); t.value = text; document.body.appendChild(t); t.select(); document.execCommand('copy'); document.body.removeChild(t);
+                      }
+                      setCopiedId(item.id); setTimeout(() => setCopiedId(null), 1500);
+                    }}
+                    className="bg-slate-900 rounded-[24px] p-5 flex justify-between items-center cursor-pointer hover:bg-slate-800 transition-all active:scale-95"
+                  >
+                    <div>
+                      <p className="text-[8px] font-black text-slate-500 uppercase tracking-[0.3em] mb-2">Account Number</p>
+                      <p className="text-2xl font-black text-white tracking-[0.1em] uppercase italic leading-none">{item.acct}</p>
+                    </div>
+                    <div className={`${copiedId === item.id ? 'bg-green-500' : 'bg-slate-700'} p-3 rounded-2xl transition-all duration-300 shadow-xl`}>
+                      {copiedId === item.id ? <CheckCircle2 className="w-6 h-6 text-white" /> : <Copy className="w-6 h-6 text-slate-300" />}
+                    </div>
                   </div>
-                  <div className={`${copiedId === item.id ? 'bg-green-500' : 'bg-slate-700'} p-3 rounded-2xl transition-all duration-300 shadow-xl`}>
-                    {copiedId === item.id ? <CheckCircle2 className="w-6 h-6 text-white" /> : <Copy className="w-6 h-6 text-slate-300" />}
-                  </div>
-                </div>
 
-                <div className="grid grid-cols-2 gap-3 mt-4">
-                  <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 flex flex-col justify-between">
-                    <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Next Due Date</p>
-                    <div className="flex items-center text-xs font-bold text-slate-700">
-                      <Calendar className="w-4 h-4 mr-2 text-indigo-400" /> {item.nextDate}
+                  <div className="grid grid-cols-2 gap-3 mt-4">
+                    <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 flex flex-col justify-between">
+                      <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Next Due Date</p>
+                      <div className="flex items-center text-xs font-bold text-slate-700">
+                        <Calendar className="w-4 h-4 mr-2 text-indigo-400" /> {item.nextDate}
+                      </div>
+                    </div>
+                    <div className="bg-indigo-50 p-4 rounded-2xl border border-indigo-100 flex flex-col justify-between">
+                      <p className="text-[9px] font-black text-indigo-400 uppercase tracking-widest mb-1.5 text-right">Next Due Amount</p>
+                      <div className="text-sm font-black text-indigo-700 text-right flex items-center justify-end">
+                        <Wallet className="w-3.5 h-3.5 mr-1.5 opacity-50" /> ₱{item.amt.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                      </div>
                     </div>
                   </div>
-                  <div className="bg-indigo-50 p-4 rounded-2xl border border-indigo-100 flex flex-col justify-between">
-                    <p className="text-[9px] font-black text-indigo-400 uppercase tracking-widest mb-1.5 text-right">Next Due Amount</p>
-                    <div className="text-sm font-black text-indigo-700 text-right flex items-center justify-end">
-                      <Wallet className="w-3.5 h-3.5 mr-1.5 opacity-50" /> ₱{item.amt.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                    </div>
-                  </div>
-                </div>
 
-                <div className="grid grid-cols-2 gap-3 mt-3">
-                  <div className="bg-red-50 p-4 rounded-2xl border border-red-100 col-start-2">
-                    <p className="text-[9px] font-black text-red-400 uppercase tracking-widest mb-1.5 text-right">Overdue Amt</p>
-                    <div className="flex items-center justify-end text-xs font-black text-red-600">
-                      <ShieldAlert className="w-4 h-4 mr-2" /> ₱{item.ovr.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                  <div className="grid grid-cols-2 gap-3 mt-3">
+                    <div className="bg-red-50 p-4 rounded-2xl border border-red-100 col-start-2">
+                      <p className="text-[9px] font-black text-red-400 uppercase tracking-widest mb-1.5 text-right">Overdue Amt</p>
+                      <div className="flex items-center justify-end text-xs font-black text-red-600">
+                        <ShieldAlert className="w-4 h-4 mr-2" /> ₱{item.ovr.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                      </div>
                     </div>
-                  </div>
-                  <div className="bg-emerald-50 p-4 rounded-2xl border border-emerald-100 col-start-1 row-start-1">
-                    <p className="text-[9px] font-black text-emerald-500 uppercase tracking-widest mb-1.5">Sales (BPS)</p>
-                    <div className="flex items-center text-xs font-black text-emerald-700">
-                      <TrendingUp className="w-4 h-4 mr-2" /> ₱{item.bps.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                    <div className="bg-emerald-50 p-4 rounded-2xl border border-emerald-100 col-start-1 row-start-1">
+                      <p className="text-[9px] font-black text-emerald-500 uppercase tracking-widest mb-1.5">Sales (BPS)</p>
+                      <div className="flex items-center text-xs font-black text-emerald-700">
+                        <TrendingUp className="w-4 h-4 mr-2" /> ₱{item.bps.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                      </div>
                     </div>
                   </div>
                 </div>
+              ))
+            ) : (
+              <div className="text-center py-10">
+                <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">No matching records found.</p>
               </div>
-            ))
+            )
           )}
         </div>
       </div>
