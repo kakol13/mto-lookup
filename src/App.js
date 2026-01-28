@@ -1,460 +1,319 @@
-/* global __app_id, __firebase_config, __initial_auth_token */
-import React, { useState, useMemo, useEffect } from 'react';
-import { 
-  Search, 
-  FileUp, 
-  User, 
-  Calendar, 
-  Database,
-  X,
-  Loader2,
-  Copy,
-  CheckCircle2,
-  TrendingUp,
-  ShieldAlert,
-  Users,
-  Lock,
-  Cloud,
-  Wallet,
-  KeyRound
-} from 'lucide-react';
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rep Search App</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap');
+        body { font-family: 'Inter', sans-serif; }
+        .hide-scrollbar::-webkit-scrollbar { display: none; }
+        .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+    </style>
+</head>
+<body class="bg-slate-50">
+    <div id="root"></div>
 
-// External Scripts for XLSX
-const XLSX_SCRIPT_URL = 'https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js';
+    <script type="text/babel">
+        const { useState, useMemo, useEffect } = React;
 
-// Firebase Scripts - Loaded via Script tags to avoid build-time dependency resolution issues
-const FIREBASE_APP_URL = 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js';
-const FIREBASE_AUTH_URL = 'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js';
-const FIREBASE_FIRESTORE_URL = 'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js';
+        const XLSX_SCRIPT_URL = 'https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js';
+        const FIREBASE_APP_URL = 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js';
+        const FIREBASE_AUTH_URL = 'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js';
+        const FIREBASE_FIRESTORE_URL = 'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js';
 
-export default function App() {
-  const [user, setUser] = useState(null);
-  const [data, setData] = useState([]);
-  const [lastUpdated, setLastUpdated] = useState(null);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [isLoading, setIsLoading] = useState(true);
-  const [isUploading, setIsUploading] = useState(false);
-  const [copiedId, setCopiedId] = useState(null);
-  const [isAdmin, setIsAdmin] = useState(false);
-  const [showPinModal, setShowPinModal] = useState(false);
-  const [pinInput, setPinInput] = useState('');
-  const [pinError, setPinError] = useState(false);
-  const [firebaseReady, setFirebaseReady] = useState(false);
+        const Icons = {
+            Search: () => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>,
+            Lock: () => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>,
+            X: () => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>,
+            User: () => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>,
+            Copy: () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>,
+            Check: () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>,
+            FileUp: () => <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/><path d="M12 18v-6"/><path d="m9 15 3-3 3 3"/></svg>,
+            Bug: () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m8 2 1.88 1.88"/><path d="M14.12 3.88 16 2"/><path d="M9 7.13v-1a3.003 3.003 0 1 1 6 0v1"/><path d="M12 20c-3.31 0-6-2.69-6-6v-1h12v1c0 3.31-2.69 6-6 6Z"/><path d="M12 20v-9"/><path d="M6.53 9C4.6 8.8 3 7.1 3 5"/><path d="M6 13H2"/><path d="M3 21c0-2.1 1.7-3.9 3.8-4"/><path d="M20.97 5c0 2.1-1.6 3.8-3.5 4"/><path d="M22 13h-4"/><path d="M17.2 17c2.1.1 3.8 1.9 3.8 4"/></svg>
+        };
 
-  // References to global firebase objects (compat version)
-  const [db, setDb] = useState(null);
+        function App() {
+            const [user, setUser] = useState(null);
+            const [data, setData] = useState([]);
+            const [lastUpdated, setLastUpdated] = useState(null);
+            const [searchTerm, setSearchTerm] = useState('');
+            const [isLoading, setIsLoading] = useState(true);
+            const [isUploading, setIsUploading] = useState(false);
+            const [uploadStatus, setUploadStatus] = useState(null);
+            const [copiedId, setCopiedId] = useState(null);
+            const [isAdmin, setIsAdmin] = useState(false);
+            const [showPinModal, setShowPinModal] = useState(false);
+            const [pinInput, setPinInput] = useState('');
+            const [db, setDb] = useState(null);
+            const [debugRows, setDebugRows] = useState(null);
+            const [showDebug, setShowDebug] = useState(false);
 
-  const CORRECT_PIN = "5256";
-  
-  // Vercel Compatibility: Use process.env if the global artifacts variables are missing
-  const appId = typeof __app_id !== 'undefined' ? __app_id : (process.env.REACT_APP_APP_ID || 'mto-lookup-app');
+            const CORRECT_PIN = "5256";
+            const appId = 'mto-lookup-app';
+            const M = { name: 1, acct: 11, due: 4, amt: 5, ovr: 7, bps: 3, upl: 14 };
 
-  const formatAsMMDDYYYY = (dateInput) => {
-    let date;
-    if (dateInput instanceof Date) {
-      date = dateInput;
-    } else if (dateInput) {
-      const strDate = String(dateInput).trim();
-      if (/^\d{8}$/.test(strDate)) {
-        const y = strDate.substring(0, 4);
-        const m = strDate.substring(4, 6);
-        const d = strDate.substring(6, 8);
-        return `${m}/${d}/${y}`;
-      }
-      const parsed = new Date(strDate);
-      if (!isNaN(parsed.getTime())) date = parsed;
-    }
-    if (!date || isNaN(date.getTime())) {
-      return (dateInput === null || dateInput === undefined) ? "N/A" : String(dateInput).trim();
-    }
-    const mm = String(date.getMonth() + 1).padStart(2, '0');
-    const dd = String(date.getDate()).padStart(2, '0');
-    const yyyy = date.getFullYear();
-    return `${mm}/${dd}/${yyyy}`;
-  };
+            const loadScript = (url) => {
+                return new Promise((resolve) => {
+                    if (document.querySelector(`script[src="${url}"]`)) return resolve();
+                    const script = document.createElement('script');
+                    script.src = url; script.async = true; script.onload = resolve;
+                    document.head.appendChild(script);
+                });
+            };
 
-  const loadScript = (url) => {
-    return new Promise((resolve) => {
-      if (document.querySelector(`script[src="${url}"]`)) return resolve();
-      const script = document.createElement('script');
-      script.src = url;
-      script.async = true;
-      script.onload = resolve;
-      script.onerror = () => {
-        console.warn(`Failed to load script: ${url}`);
-        resolve();
-      };
-      document.head.appendChild(script);
-    });
-  };
-
-  useEffect(() => {
-    const initAll = async () => {
-      try {
-        await loadScript(FIREBASE_APP_URL);
-        await Promise.all([
-          loadScript(XLSX_SCRIPT_URL),
-          loadScript(FIREBASE_AUTH_URL),
-          loadScript(FIREBASE_FIRESTORE_URL)
-        ]);
-
-        if (!window.firebase) throw new Error("Firebase script failed");
-
-        // Vercel Compatibility: Handle missing config
-        let config;
-        if (typeof __firebase_config !== 'undefined') {
-          config = JSON.parse(__firebase_config);
-        } else if (process.env.REACT_APP_FIREBASE_CONFIG) {
-          config = JSON.parse(process.env.REACT_APP_FIREBASE_CONFIG);
-        }
-
-        if (!config) {
-          console.error("No Firebase configuration found!");
-          setIsLoading(false);
-          setFirebaseReady(true);
-          return;
-        }
-
-        if (!window.firebase.apps.length) {
-          window.firebase.initializeApp(config);
-        }
-        
-        const firebaseAuth = window.firebase.auth();
-        const firebaseDb = window.firebase.firestore();
-        setDb(firebaseDb);
-
-        firebaseAuth.onAuthStateChanged((u) => {
-          setUser(u);
-          setFirebaseReady(true);
-        });
-
-        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-          await firebaseAuth.signInWithCustomToken(__initial_auth_token).catch(() => firebaseAuth.signInAnonymously());
-        } else {
-          await firebaseAuth.signInAnonymously().catch(console.error);
-        }
-
-      } catch (err) {
-        console.error("Initialization failed", err);
-        setIsLoading(false);
-        setFirebaseReady(true);
-      }
-    };
-    initAll();
-    
-    const timer = setTimeout(() => {
-        setIsLoading(false);
-        setFirebaseReady(true);
-    }, 15000);
-    
-    return () => clearTimeout(timer);
-  }, []);
-
-  useEffect(() => {
-    if (!user || !db) return;
-    const reportRef = db.doc(`artifacts/${appId}/public/data/reports/latest`);
-    const unsubscribe = reportRef.onSnapshot((docSnap) => {
-      if (docSnap.exists) {
-        const report = docSnap.data();
-        setData(report.items || []);
-        const dateObj = report.updatedAt?.toDate();
-        setLastUpdated(dateObj ? dateObj.toLocaleString() : "Recently");
-      } else {
-        setData([]);
-      }
-      setIsLoading(false);
-    }, (err) => {
-      console.error("Firestore Read error:", err);
-      setIsLoading(false);
-    });
-    return () => unsubscribe();
-  }, [user, db, appId]);
-
-  const handleAdminToggle = () => {
-    if (isAdmin) {
-      setIsAdmin(false);
-    } else {
-      setShowPinModal(true);
-      setPinInput('');
-      setPinError(false);
-    }
-  };
-
-  const handlePinSubmit = (e) => {
-    e.preventDefault();
-    if (pinInput === CORRECT_PIN) {
-      setIsAdmin(true);
-      setShowPinModal(false);
-      setPinError(false);
-    } else {
-      setPinError(true);
-      setPinInput('');
-    }
-  };
-
-  const cleanVal = (v) => {
-    if (v === null || v === undefined) return "";
-    return String(v).replace(/[\u00A0\u1680​\u180e\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]/g, " ").trim();
-  };
-
-  const handleFileUpload = (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    if (!window.XLSX) {
-      console.error("XLSX library not loaded yet");
-      return;
-    }
-    if (!user || !db) {
-      console.error("Firebase not authenticated or DB not ready", { user, db });
-      return;
-    }
-
-    setIsUploading(true);
-    const reader = new FileReader();
-    reader.onload = async (evt) => {
-      try {
-        const wb = window.XLSX.read(evt.target.result, { type: 'array', cellDates: true });
-        const sheet = wb.Sheets[wb.SheetNames[0]];
-        const raw = window.XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" });
-        
-        // Mapping based on your specific Excel structure
-        const M = { name: 1, acct: 11, due: 4, amt: 5, ovr: 7, bps: 3, upl: 14 };
-        
-        const formatted = raw
-          .filter(r => r[M.name] && cleanVal(r[M.name]).length > 2 && cleanVal(r[M.name]).toLowerCase() !== "name")
-          .map((r, i) => ({
-            id: i,
-            name: cleanVal(r[M.name]).toUpperCase(),
-            acct: cleanVal(r[M.acct] || "N/A"),
-            nextDate: formatAsMMDDYYYY(r[M.due]),
-            amt: parseFloat(String(r[M.amt]).replace(/[^0-9.-]+/g, "")) || 0,
-            ovr: parseFloat(String(r[M.ovr]).replace(/[^0-9.-]+/g, "")) || 0,
-            bps: parseFloat(String(r[M.bps]).replace(/[^0-9.-]+/g, "")) || 0,
-            upl: cleanVal(r[M.upl] || "N/A")
-          }));
-
-        const reportRef = db.doc(`artifacts/${appId}/public/data/reports/latest`);
-        
-        await reportRef.set({
-          items: formatted,
-          updatedAt: new Date(),
-          uploaderId: user.uid
-        });
-        
-        console.log("Upload successful!");
-        setIsAdmin(false); 
-      } catch (err) {
-        console.error("Upload process error:", err);
-        // Alerting locally for debugging if upload fails
-        if (err.code === 'permission-denied') {
-          console.error("CRITICAL: Check your Firestore Security Rules!");
-        }
-      } finally {
-        setIsUploading(false);
-      }
-    };
-    reader.readAsArrayBuffer(file);
-  };
-
-  const filtered = useMemo(() => {
-    if (searchTerm.length < 2) return [];
-    const term = searchTerm.toLowerCase();
-    return data.filter(d => d.name.toLowerCase().includes(term)).slice(0, 30);
-  }, [data, searchTerm]);
-
-  if (isLoading || !firebaseReady) {
-    return (
-      <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center text-white p-6">
-        <Loader2 className="w-12 h-12 text-indigo-500 animate-spin mb-4" />
-        <p className="font-black uppercase tracking-widest text-[10px] animate-pulse">Syncing Cloud Database...</p>
-        <p className="text-[9px] text-slate-500 mt-8 text-center max-w-[200px]">Checking configuration...</p>
-      </div>
-    );
-  }
-
-  return (
-    <div className="min-h-screen bg-slate-50 pb-20 font-sans select-none">
-      <div className="bg-gradient-to-br from-indigo-700 to-blue-900 h-56 w-full rounded-b-[50px] shadow-2xl absolute top-0" />
-      
-      <div className="relative z-10 max-w-md mx-auto px-4 pt-10 space-y-6">
-        <header className="flex justify-between items-start">
-          <div className="text-white">
-            <h1 className="text-2xl font-black uppercase tracking-tighter italic leading-none">Rep Search</h1>
-            <div className="flex items-center mt-2 space-x-2">
-              <Cloud className="w-3 h-3 text-indigo-300" />
-              <p className="text-[9px] font-bold text-indigo-200 uppercase tracking-widest">
-                Updated: {lastUpdated || "Never"}
-              </p>
-            </div>
-          </div>
-          <button 
-            onClick={handleAdminToggle}
-            className={`p-3 backdrop-blur-md rounded-2xl text-white transition-all ${isAdmin ? 'bg-indigo-500 shadow-lg' : 'bg-white/10 hover:bg-white/20'}`}
-          >
-            {isAdmin ? <X className="w-5 h-5" /> : <Lock className="w-5 h-5" />}
-          </button>
-        </header>
-
-        {showPinModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center px-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
-            <div className="bg-white rounded-[32px] p-8 w-full max-w-xs shadow-2xl animate-in zoom-in-95 duration-200">
-              <div className="flex flex-col items-center">
-                <div className="w-12 h-12 bg-indigo-100 rounded-2xl flex items-center justify-center mb-4">
-                  <KeyRound className="w-6 h-6 text-indigo-600" />
-                </div>
-                <h3 className="font-black uppercase tracking-tight text-slate-800 text-lg">Admin Access</h3>
-                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-6">Enter PIN to continue</p>
+            const formatAsMMDDYYYY = (val) => {
+                if (!val || val === "") return "N/A";
                 
-                <form onSubmit={handlePinSubmit} className="w-full space-y-4">
-                  <input 
-                    type="password"
-                    maxLength={4}
-                    autoFocus
-                    value={pinInput}
-                    onChange={(e) => {
-                      setPinInput(e.target.value.replace(/\D/g, ''));
-                      setPinError(false);
-                    }}
-                    placeholder="••••"
-                    className={`w-full text-center text-2xl tracking-[0.5em] font-black py-4 rounded-2xl border-2 transition-all outline-none ${pinError ? 'bg-red-50 border-red-200 text-red-500' : 'bg-slate-50 border-slate-100 text-slate-800 focus:border-indigo-500'}`}
-                  />
-                  {pinError && <p className="text-[10px] font-bold text-red-500 text-center uppercase tracking-widest">Invalid PIN Code</p>}
-                  <div className="flex space-x-2">
-                    <button 
-                      type="button"
-                      onClick={() => setShowPinModal(false)}
-                      className="flex-1 py-4 rounded-2xl bg-slate-100 text-slate-600 font-black text-[10px] uppercase tracking-widest hover:bg-slate-200 transition-colors"
-                    >
-                      Cancel
-                    </button>
-                    <button 
-                      type="submit"
-                      className="flex-1 py-4 rounded-2xl bg-indigo-600 text-white font-black text-[10px] uppercase tracking-widest hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-200"
-                    >
-                      Verify
-                    </button>
-                  </div>
-                </form>
-              </div>
-            </div>
-          </div>
-        )}
+                const strVal = String(val).trim();
+                
+                // Handle YYYYMMDD (8 digits) format directly
+                if (/^\d{8}$/.test(strVal)) {
+                    const y = strVal.substring(0, 4);
+                    const m = strVal.substring(4, 6);
+                    const d = strVal.substring(6, 8);
+                    return `${m}/${d}/${y}`;
+                }
+                
+                // Fallback for JS Date objects (SheetJS cellDates: true)
+                if (val instanceof Date) {
+                    const month = String(val.getMonth() + 1).padStart(2, '0');
+                    const day = String(val.getDate()).padStart(2, '0');
+                    return `${month}/${day}/${val.getFullYear()}`;
+                }
 
-        {isAdmin && (
-          <div className="bg-white rounded-[32px] shadow-2xl p-6 border-4 border-indigo-500 animate-in zoom-in-95">
-            <h2 className="text-sm font-black uppercase text-indigo-600 mb-4 flex items-center">
-              <Database className="w-4 h-4 mr-2" /> Admin: Update Master File
-            </h2>
-            <div className="relative">
-              <input type="file" onChange={handleFileUpload} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" />
-              <div className="border-2 border-dashed border-indigo-200 rounded-2xl p-8 text-center bg-indigo-50/50">
-                {isUploading ? <Loader2 className="animate-spin w-8 h-8 text-indigo-600 mx-auto" /> : <FileUp className="w-8 h-8 text-indigo-500 mx-auto" />}
-                <p className="mt-2 text-xs font-bold text-slate-600">
-                  {isUploading ? "Uploading to Cloud..." : "Upload New Master XLSX"}
-                </p>
-              </div>
-            </div>
-          </div>
-        )}
+                // If it's already in MM/DD/YYYY format, just return it
+                if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(strVal)) {
+                    return strVal;
+                }
 
-        <div className="bg-white rounded-[32px] shadow-xl p-6">
-          <div className="relative group">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300 w-6 h-6 group-focus-within:text-indigo-500 transition-colors" />
-            <input 
-              type="text" 
-              placeholder="Search representative name..." 
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full bg-slate-50 border-none rounded-2xl py-5 pl-14 pr-4 text-sm font-bold focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all"
-            />
-          </div>
-        </div>
+                return strVal; // Return raw if we can't identify it
+            };
 
-        <div className="space-y-4">
-          {searchTerm.length < 2 ? (
-            <div className="text-center py-20 opacity-20">
-              <Search className="w-16 h-16 mx-auto mb-4" />
-              <p className="font-black uppercase tracking-widest text-xs">Search to view results</p>
-            </div>
-          ) : (
-            filtered.length > 0 ? (
-              filtered.map(item => (
-                <div key={item.id} className="bg-white rounded-[32px] p-6 shadow-lg border border-slate-100 animate-in fade-in slide-in-from-bottom-4">
-                  <div className="flex items-center space-x-4 mb-6">
-                    <div className="w-14 h-14 bg-gradient-to-br from-indigo-500 to-blue-600 rounded-2xl flex items-center justify-center shrink-0 shadow-lg shadow-indigo-100">
-                      <User className="text-white w-7 h-7" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <h3 className="font-black text-slate-800 uppercase truncate text-lg tracking-tight leading-tight">{item.name}</h3>
-                      <div className="flex items-center mt-1">
-                        <Users className="w-3.5 h-3.5 text-indigo-400 mr-2" />
-                        <p className="text-[10px] text-slate-400 font-bold uppercase truncate tracking-widest">
-                          Upline: <span className="text-indigo-600 font-black">{item.upl}</span>
-                        </p>
-                      </div>
-                    </div>
-                  </div>
+            useEffect(() => {
+                const init = async () => {
+                    await loadScript(FIREBASE_APP_URL);
+                    await Promise.all([loadScript(XLSX_SCRIPT_URL), loadScript(FIREBASE_AUTH_URL), loadScript(FIREBASE_FIRESTORE_URL)]);
+                    const config = {
+                        apiKey: "AIzaSyDVZglQZN-UgovrJXk8inucP0Fr13BifUM",
+                        authDomain: "mto-search.firebaseapp.com",
+                        projectId: "mto-search",
+                        storageBucket: "mto-search.firebasestorage.app",
+                        messagingSenderId: "809363447934",
+                        appId: "1:809363447934:web:1b3aa6ced07097d8c6f82f"
+                    };
+                    if (!window.firebase.apps.length) window.firebase.initializeApp(config);
+                    const fDb = window.firebase.firestore();
+                    const fAuth = window.firebase.auth();
+                    setDb(fDb);
+                    fAuth.onAuthStateChanged(u => { setUser(u); setIsLoading(false); });
+                    try { await fAuth.signInAnonymously(); } catch (e) { setIsLoading(false); }
+                };
+                init();
+            }, []);
 
-                  <div 
-                    onClick={() => {
-                      const text = item.acct;
-                      if (navigator.clipboard && navigator.clipboard.writeText) {
-                        navigator.clipboard.writeText(text);
-                      } else {
-                        const t = document.createElement('textarea'); t.value = text; document.body.appendChild(t); t.select(); document.execCommand('copy'); document.body.removeChild(t);
-                      }
-                      setCopiedId(item.id); setTimeout(() => setCopiedId(null), 1500);
-                    }}
-                    className="bg-slate-900 rounded-[24px] p-5 flex justify-between items-center cursor-pointer hover:bg-slate-800 transition-all active:scale-95"
-                  >
-                    <div>
-                      <p className="text-[8px] font-black text-slate-500 uppercase tracking-[0.3em] mb-2">Account Number</p>
-                      <p className="text-2xl font-black text-white tracking-[0.1em] uppercase italic leading-none">{item.acct}</p>
-                    </div>
-                    <div className={`${copiedId === item.id ? 'bg-green-500' : 'bg-slate-700'} p-3 rounded-2xl transition-all duration-300 shadow-xl`}>
-                      {copiedId === item.id ? <CheckCircle2 className="w-6 h-6 text-white" /> : <Copy className="w-6 h-6 text-slate-300" />}
-                    </div>
-                  </div>
+            useEffect(() => {
+                if (!db) return;
+                const unsubscribe = db.doc(`artifacts/${appId}/public/data/reports/latest`).onSnapshot(doc => {
+                    if (doc.exists) {
+                        const r = doc.data();
+                        setData(r.items || []);
+                        setLastUpdated(r.updatedAt?.toDate().toLocaleString());
+                    }
+                });
+                return () => unsubscribe();
+            }, [db, user]);
 
-                  <div className="grid grid-cols-2 gap-3 mt-4">
-                    <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 flex flex-col justify-between">
-                      <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Next Due Date</p>
-                      <div className="flex items-center text-xs font-bold text-slate-700">
-                        <Calendar className="w-4 h-4 mr-2 text-indigo-400" /> {item.nextDate}
-                      </div>
-                    </div>
-                    <div className="bg-indigo-50 p-4 rounded-2xl border border-indigo-100 flex flex-col justify-between">
-                      <p className="text-[9px] font-black text-indigo-400 uppercase tracking-widest mb-1.5 text-right">Next Due Amount</p>
-                      <div className="text-sm font-black text-indigo-700 text-right flex items-center justify-end">
-                        <Wallet className="w-3.5 h-3.5 mr-1.5 opacity-50" /> ₱{item.amt.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                      </div>
-                    </div>
-                  </div>
+            const handleFileUpload = (e) => {
+                const file = e.target.files[0];
+                if (!file || !window.XLSX || !db) return;
+                setIsUploading(true);
+                setUploadStatus(null);
+                const reader = new FileReader();
+                reader.onload = async (evt) => {
+                    try {
+                        const dataArr = new Uint8Array(evt.target.result);
+                        // We set cellDates to false to get raw strings for YYYYMMDD parsing
+                        const wb = window.XLSX.read(dataArr, { type: 'array', cellDates: false });
+                        const sheet = wb.Sheets[wb.SheetNames[0]];
+                        const raw = window.XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" });
+                        
+                        setDebugRows(raw.slice(0, 15));
 
-                  <div className="grid grid-cols-2 gap-3 mt-3">
-                    <div className="bg-red-50 p-4 rounded-2xl border border-red-100 col-start-2">
-                      <p className="text-[9px] font-black text-red-400 uppercase tracking-widest mb-1.5 text-right">Overdue Amt</p>
-                      <div className="flex items-center justify-end text-xs font-black text-red-600">
-                        <ShieldAlert className="w-4 h-4 mr-2" /> ₱{item.ovr.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                      </div>
+                        const formatted = raw
+                            .filter(r => r[M.name] && String(r[M.name]).trim().length > 2 && String(r[M.name]).toLowerCase() !== "name")
+                            .map((r, i) => ({
+                                id: i,
+                                name: String(r[M.name]).trim().toUpperCase(),
+                                acct: String(r[M.acct] || "N/A").trim(),
+                                nextDate: formatAsMMDDYYYY(r[M.due]),
+                                amt: parseFloat(String(r[M.amt]).replace(/[^0-9.-]+/g, "")) || 0,
+                                ovr: parseFloat(String(r[M.ovr]).replace(/[^0-9.-]+/g, "")) || 0,
+                                bps: parseFloat(String(r[M.bps]).replace(/[^0-9.-]+/g, "")) || 0,
+                                upl: String(r[M.upl] || "N/A").trim()
+                            }));
+
+                        await db.doc(`artifacts/${appId}/public/data/reports/latest`).set({
+                            items: formatted,
+                            updatedAt: new Date(),
+                            uploaderId: user?.uid || "admin-manual"
+                        });
+                        setUploadStatus('success');
+                    } catch (err) {
+                        console.error(err);
+                        setUploadStatus('error');
+                    } finally {
+                        setIsUploading(false);
+                    }
+                };
+                reader.readAsArrayBuffer(file);
+            };
+
+            const filtered = useMemo(() => {
+                const t = searchTerm.toLowerCase();
+                return t.length < 2 ? [] : data.filter(d => d.name.toLowerCase().includes(t)).slice(0, 25);
+            }, [data, searchTerm]);
+
+            if (isLoading) return <div className="min-h-screen bg-slate-900 flex items-center justify-center text-white font-black italic tracking-widest">SYNCING DATA...</div>;
+
+            return (
+                <div className="min-h-screen pb-20">
+                    <div className="bg-indigo-700 h-56 w-full rounded-b-[40px] shadow-2xl absolute top-0" />
+                    <div className="relative z-10 max-w-md mx-auto px-4 pt-10 space-y-6">
+                        <header className="flex justify-between items-start text-white">
+                            <div>
+                                <h1 className="text-2xl font-black uppercase italic tracking-tighter leading-none">Rep Search</h1>
+                                <p className="text-[10px] font-bold opacity-70 uppercase mt-2 tracking-widest">Updated: {lastUpdated || "Never"}</p>
+                            </div>
+                            <button onClick={() => isAdmin ? setIsAdmin(false) : setShowPinModal(true)} className="p-3 bg-white/10 rounded-2xl hover:bg-white/20 transition-colors">
+                                {isAdmin ? <Icons.X /> : <Icons.Lock />}
+                            </button>
+                        </header>
+
+                        {showPinModal && (
+                            <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
+                                <div className="bg-white rounded-[32px] p-8 w-full max-w-xs shadow-2xl scale-in-center">
+                                    <form onSubmit={(e) => { e.preventDefault(); if(pinInput === CORRECT_PIN) {setIsAdmin(true); setShowPinModal(false);} else {setPinInput('');} }}>
+                                        <input type="password" value={pinInput} onChange={e => setPinInput(e.target.value)} placeholder="PIN" className="w-full text-center text-2xl font-black p-4 bg-slate-50 rounded-2xl mb-4 outline-none border-2 focus:border-indigo-500" />
+                                        <button type="submit" className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-black uppercase text-xs shadow-lg shadow-indigo-100">Login</button>
+                                        <button type="button" onClick={() => setShowPinModal(false)} className="w-full mt-2 py-2 text-slate-400 font-bold uppercase text-[10px]">Cancel</button>
+                                    </form>
+                                </div>
+                            </div>
+                        )}
+
+                        {isAdmin && (
+                            <div className="bg-white rounded-[32px] p-6 shadow-2xl border-4 border-indigo-500 space-y-4 animate-in slide-in-from-top-4">
+                                <div className="flex justify-between items-center">
+                                    <h2 className="text-xs font-black uppercase text-indigo-600">Admin Control Panel</h2>
+                                    {debugRows && (
+                                        <button onClick={() => setShowDebug(!showDebug)} className={`flex items-center space-x-1 px-3 py-1.5 rounded-full text-[9px] font-black uppercase transition-colors ${showDebug ? 'bg-amber-500 text-white' : 'bg-slate-100 text-slate-500'}`}>
+                                            <Icons.Bug /> <span>{showDebug ? 'Close' : 'Inspect Col 4'}</span>
+                                        </button>
+                                    )}
+                                </div>
+
+                                {showDebug && debugRows && (
+                                    <div className="bg-slate-900 rounded-2xl p-4 overflow-x-auto hide-scrollbar border-2 border-amber-500/30">
+                                        <table className="w-full text-left">
+                                            <thead>
+                                                <tr>
+                                                    {debugRows[0].map((_, i) => (
+                                                        <th key={i} className={`text-[8px] font-black p-1 border-b border-slate-800 ${i === M.due ? 'text-amber-400 bg-amber-400/10' : 'text-slate-500'}`}>
+                                                            {i === M.due ? 'DUE (4)' : `IDX ${i}`}
+                                                        </th>
+                                                    ))}
+                                                </tr>
+                                            </thead>
+                                            <tbody className="text-[9px] font-mono text-slate-300">
+                                                {debugRows.map((row, ri) => (
+                                                    <tr key={ri}>
+                                                        {row.map((cell, ci) => (
+                                                            <td key={ci} className={`p-1 border-b border-slate-800/50 whitespace-nowrap ${ci === M.due ? 'bg-amber-400/10 text-amber-200' : ''}`}>
+                                                                {cell === "" ? "-" : String(cell).substring(0, 15)}
+                                                            </td>
+                                                        ))}
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                )}
+
+                                <div className={`relative border-2 border-dashed rounded-2xl p-8 text-center transition-colors ${uploadStatus === 'success' ? 'bg-green-50 border-green-200' : 'bg-indigo-50 border-indigo-200'}`}>
+                                    <input type="file" onChange={handleFileUpload} className="absolute inset-0 opacity-0 cursor-pointer" />
+                                    {isUploading ? <div className="w-8 h-8 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin mx-auto" /> : 
+                                     uploadStatus === 'success' ? <div className="text-green-500 flex justify-center"><Icons.Check /></div> :
+                                     <div className="text-indigo-500 flex justify-center"><Icons.FileUp /></div>}
+                                    <p className="mt-2 text-[10px] font-black uppercase text-slate-500">
+                                        {isUploading ? "Uploading Data..." : uploadStatus === 'success' ? "Update Successful!" : "Drop New Master List"}
+                                    </p>
+                                </div>
+                            </div>
+                        )}
+
+                        <div className="bg-white rounded-[24px] shadow-xl p-4">
+                            <div className="relative">
+                                <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300"><Icons.Search /></div>
+                                <input type="text" placeholder="Start typing name..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full bg-slate-50 rounded-xl py-4 pl-12 pr-4 text-sm font-bold outline-none focus:ring-2 focus:ring-indigo-500/10" />
+                            </div>
+                        </div>
+
+                        <div className="space-y-4">
+                            {filtered.map(item => (
+                                <div key={item.id} className="bg-white rounded-[32px] p-6 shadow-md border border-slate-100 animate-in fade-in slide-in-from-bottom-2">
+                                    <div className="flex items-center space-x-3 mb-4">
+                                        <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center text-white shadow-lg shadow-indigo-100"><Icons.User /></div>
+                                        <div>
+                                            <h3 className="font-black text-slate-800 uppercase text-sm leading-none">{item.name}</h3>
+                                            <p className="text-[9px] font-bold text-slate-400 mt-1 uppercase tracking-wider">Upline: <span className="text-indigo-600">{item.upl}</span></p>
+                                        </div>
+                                    </div>
+                                    <div onClick={() => { 
+                                        const text = item.acct;
+                                        const el = document.createElement('textarea'); el.value = text; document.body.appendChild(el); el.select(); document.execCommand('copy'); document.body.removeChild(el);
+                                        setCopiedId(item.id); setTimeout(()=>setCopiedId(null), 1000); 
+                                    }} className="bg-slate-900 rounded-2xl p-4 flex justify-between items-center cursor-pointer active:scale-95 transition-transform group">
+                                        <div>
+                                            <p className="text-[7px] font-black text-slate-500 uppercase tracking-widest">Account Number</p>
+                                            <p className="text-xl font-black italic tracking-widest text-white">{item.acct}</p>
+                                        </div>
+                                        <div className={copiedId === item.id ? "text-green-400" : "text-slate-600 group-hover:text-slate-400"}>
+                                            {copiedId === item.id ? <Icons.Check /> : <Icons.Copy />}
+                                        </div>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-2 mt-4">
+                                        <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
+                                            <p className="text-[8px] font-black text-slate-400 uppercase">Due Date</p>
+                                            <p className="text-[11px] font-bold text-slate-700">{item.nextDate}</p>
+                                        </div>
+                                        <div className="bg-indigo-50 p-3 rounded-xl border border-indigo-100 text-right">
+                                            <p className="text-[8px] font-black text-indigo-400 uppercase">Due Amount</p>
+                                            <p className="text-[11px] font-black text-indigo-700">₱{item.amt.toLocaleString()}</p>
+                                        </div>
+                                        <div className="bg-emerald-50 p-3 rounded-xl border border-emerald-100">
+                                            <p className="text-[8px] font-black text-emerald-500 uppercase">Sales (BPS)</p>
+                                            <p className="text-[11px] font-black text-emerald-700">₱{item.bps.toLocaleString()}</p>
+                                        </div>
+                                        <div className="bg-red-50 p-3 rounded-xl border border-red-100 text-right">
+                                            <p className="text-[8px] font-black text-red-400 uppercase">Overdue</p>
+                                            <p className="text-[11px] font-black text-red-600">₱{item.ovr.toLocaleString()}</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
                     </div>
-                    <div className="bg-emerald-50 p-4 rounded-2xl border border-emerald-100 col-start-1 row-start-1">
-                      <p className="text-[9px] font-black text-emerald-500 uppercase tracking-widest mb-1.5">Sales (BPS)</p>
-                      <div className="flex items-center text-xs font-black text-emerald-700">
-                        <TrendingUp className="w-4 h-4 mr-2" /> ₱{item.bps.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                      </div>
-                    </div>
-                  </div>
                 </div>
-              ))
-            ) : (
-              <div className="text-center py-10">
-                <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">No matching records found.</p>
-              </div>
-            )
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
