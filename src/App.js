@@ -13,7 +13,6 @@ import {
   TrendingUp,
   ShieldAlert,
   Users,
-  Download,
   Lock,
   Cloud,
   Wallet,
@@ -44,7 +43,6 @@ export default function App() {
 
   // References to global firebase objects (compat version)
   const [db, setDb] = useState(null);
-  const [auth, setAuth] = useState(null);
 
   const CORRECT_PIN = "5256";
   const appId = typeof __app_id !== 'undefined' ? __app_id : 'mto-lookup-app';
@@ -96,7 +94,6 @@ export default function App() {
         }
         const firebaseAuth = window.firebase.auth();
         const firebaseDb = window.firebase.firestore();
-        setAuth(firebaseAuth);
         setDb(firebaseDb);
         if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
           await firebaseAuth.signInWithCustomToken(__initial_auth_token);
