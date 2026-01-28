@@ -8,7 +8,10 @@ import {
   X,
   Loader2,
   Copy,
-  CheckCircle2
+  CheckCircle2,
+  TrendingUp,
+  ShieldAlert,
+  Users
 } from 'lucide-react';
 
 const XLSX_SCRIPT_URL = 'https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js';
@@ -21,28 +24,39 @@ export default function App() {
   const [copiedId, setCopiedId] = useState(null);
 
   useEffect(() => {
-    // Check if script already exists to avoid duplicates
     if (window.XLSX) return;
     const script = document.createElement('script');
     script.src = XLSX_SCRIPT_URL;
     script.async = true;
-    script.onload = () => console.log('XLSX Loaded');
     document.head.appendChild(script);
   }, []);
 
   const isAccountNumber = (val) => {
     const s = String(val || "").trim();
-    // Validates format: 0000-0000-00000
     return /^\d{4}-\d{4}-\d{5}$/.test(s);
+  };
+
+  const formatCurrency = (val) => {
+    return new Intl.NumberFormat('en-PH', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2
+    }).format(val || 0);
+  };
+
+  const formatRawDate = (val) => {
+    const s = String(val || "").trim();
+    if (s.length === 8 && /^\d+$/.test(s)) {
+      return `${s.substring(0, 4)}-${s.substring(4, 6)}-${s.substring(6, 8)}`;
+    }
+    return s || "N/A";
   };
 
   const handleFileUpload = (e) => {
     const file = e.target.files[0];
     if (!file) return;
     
-    // Safety check for library
     if (!window.XLSX) {
-      alert("Excel library is still loading. Please try again in a second.");
+      alert("System still initializing. Please wait 2 seconds and try again.");
       return;
     }
 
@@ -58,20 +72,23 @@ export default function App() {
         const worksheet = workbook.Sheets[sheetName];
         const jsonRows = window.XLSX.utils.sheet_to_json(worksheet, { header: 1 });
         
-        // Dynamic Column Mapping
         let headerRowIndex = -1;
-        let baseColMap = { name: 1, date: 4, amount: 5, acct: 11, bps: 3, overdue: 7, sponsorName: 14 };
+        let baseColMap = { name: 1, date: 4, amount: 5, acct: 11, bps: 3, overdue: 7 };
+        let sponsorColIndices = []; // Track all columns that might contain sponsor info
 
-        // Search first 20 rows for the header
-        for (let i = 0; i < Math.min(jsonRows.length, 20); i++) {
+        for (let i = 0; i < Math.min(jsonRows.length, 40); i++) {
           const row = jsonRows[i];
           if (!Array.isArray(row)) continue;
-          const nameIdx = row.findIndex(c => String(c || "").toLowerCase().includes("last, first name"));
+          
+          const lowerRow = row.map(c => String(c || "").toLowerCase().trim());
+          const nameIdx = lowerRow.findIndex(c => c.includes("last, first name") || c === "member name" || (c.includes("name") && !c.includes("sponsor")));
+          
           if (nameIdx !== -1) {
             headerRowIndex = i;
             baseColMap.name = nameIdx;
-            const findCol = (term) => row.findIndex(c => String(c || "").toLowerCase().trim() === term.toLowerCase());
-            const findColContains = (term) => row.findIndex(c => String(c || "").toLowerCase().includes(term.toLowerCase()));
+            
+            const findCol = (term) => lowerRow.findIndex(c => c === term.toLowerCase());
+            const findColContains = (term) => lowerRow.findIndex(c => c.includes(term.toLowerCase()));
             
             const acctIdx = findCol("acct. no.");
             if (acctIdx !== -1) baseColMap.acct = acctIdx;
@@ -81,15 +98,19 @@ export default function App() {
             
             const amtIdx = findColContains("due amount");
             if (amtIdx !== -1) baseColMap.amount = amtIdx;
-            
+
             const bpsIdx = findCol("bps");
             if (bpsIdx !== -1) baseColMap.bps = bpsIdx;
-            
+
             const overdueIdx = findColContains("amount overdue");
             if (overdueIdx !== -1) baseColMap.overdue = overdueIdx;
             
-            const sponsorNameIdx = findCol("sponsor name");
-            if (sponsorNameIdx !== -1) baseColMap.sponsorName = sponsorNameIdx;
+            // Collect ALL columns that mention Sponsor or Upline
+            lowerRow.forEach((cell, idx) => {
+              if (cell.includes("sponsor") || cell.includes("upline")) {
+                sponsorColIndices.push(idx);
+              }
+            });
             break;
           }
         }
@@ -103,20 +124,33 @@ export default function App() {
               const found = row.find(cell => isAccountNumber(cell));
               if (found) acct = String(found).trim();
             }
+
+            // SMART SPONSOR NAME LOOKUP:
+            // Look through all identified sponsor columns for the first one that contains text (not just a number)
+            let sponsorVal = "N/A";
+            for (let colIdx of sponsorColIndices) {
+              const val = String(row[colIdx] || "").trim();
+              // Check if value exists, is not a number, and has at least one letter
+              if (val && isNaN(Number(val)) && /[a-zA-Z]/.test(val)) {
+                sponsorVal = val;
+                break;
+              }
+            }
+
             return {
               id: index,
               memberName: String(row[baseColMap.name] || "").trim(),
               accountNumber: acct,
-              dueDate: row[baseColMap.date] ? String(row[baseColMap.date]) : "N/A",
+              dueDate: formatRawDate(row[baseColMap.date]),
               dueAmount: parseFloat(row[baseColMap.amount]) || 0,
-              bps: row[baseColMap.bps] || 0,
-              overdue: row[baseColMap.overdue] || 0,
-              upline: String(row[baseColMap.sponsorName] || "N/A").trim()
+              bps: parseFloat(row[baseColMap.bps]) || 0,
+              overdue: parseFloat(row[baseColMap.overdue]) || 0,
+              upline: sponsorVal
             };
           });
         setData(formattedData);
       } catch (err) {
-        console.error("Processing Error:", err);
+        console.error("Error processing file:", err);
       } finally {
         setIsLoading(false);
       }
@@ -138,40 +172,25 @@ export default function App() {
   const filteredResults = useMemo(() => {
     if (!searchTerm || searchTerm.length < 2) return [];
     const lowerTerm = searchTerm.toLowerCase().trim();
-    return data
-      .filter(i => i.memberName.toLowerCase().includes(lowerTerm))
-      .slice(0, 50);
+    return data.filter(i => i.memberName.toLowerCase().includes(lowerTerm)).slice(0, 50);
   }, [data, searchTerm]);
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 pb-10 font-sans">
       <div className="bg-blue-600 h-48 w-full absolute top-0 left-0 rounded-b-[40px] shadow-lg" />
-      
       <div className="relative z-10 max-w-md mx-auto px-4 pt-10 space-y-6">
         <header className="text-center text-white pb-2">
-          <h1 className="text-3xl font-black tracking-tight uppercase">MTO Lookup</h1>
-          <p className="text-blue-100 text-xs font-bold tracking-[0.2em] opacity-80 uppercase">Member Database</p>
+          <h1 className="text-3xl font-black tracking-tight uppercase leading-none">MTO Lookup</h1>
+          <p className="text-blue-100 text-[10px] font-bold tracking-[0.3em] opacity-80 uppercase mt-2">Member Database</p>
         </header>
 
-        <div className="bg-white rounded-[32px] shadow-xl p-6 space-y-6 border border-white/20">
+        <div className="bg-white rounded-[32px] shadow-xl p-6 space-y-6">
           {!data.length ? (
             <div className="relative">
-              <input 
-                type="file" 
-                accept=".xlsx, .xls, .csv" 
-                onChange={handleFileUpload} 
-                disabled={isLoading} 
-                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" 
-              />
+              <input type="file" accept=".xlsx, .xls, .csv" onChange={handleFileUpload} disabled={isLoading} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" />
               <div className="border-2 border-dashed rounded-2xl p-10 text-center space-y-4 bg-blue-50/30 border-blue-200">
-                {isLoading ? (
-                  <Loader2 className="animate-spin text-blue-600 w-10 h-10 mx-auto" />
-                ) : (
-                  <FileUp className="text-blue-600 w-10 h-10 mx-auto" />
-                )}
-                <p className="font-extrabold text-slate-800">
-                  {isLoading ? "Processing..." : "Upload Masterlist"}
-                </p>
+                {isLoading ? <Loader2 className="animate-spin text-blue-600 w-10 h-10 mx-auto" /> : <FileUp className="text-blue-600 w-10 h-10 mx-auto" />}
+                <p className="font-extrabold text-slate-800">{isLoading ? "Processing..." : "Upload Masterlist"}</p>
               </div>
             </div>
           ) : (
@@ -180,12 +199,7 @@ export default function App() {
                 <Database className="text-blue-600 w-5 h-5 shrink-0" />
                 <p className="text-sm font-bold truncate text-slate-800">{fileName}</p>
               </div>
-              <button 
-                onClick={() => {setData([]); setSearchTerm('');}} 
-                className="p-2 text-slate-400 hover:text-red-500 bg-white rounded-full shadow-sm"
-              >
-                <X className="w-5 h-5" />
-              </button>
+              <button onClick={() => {setData([]); setSearchTerm('');}} className="p-2 text-slate-400 hover:text-red-500 bg-white rounded-full shadow-sm transition-colors"><X className="w-5 h-5" /></button>
             </div>
           )}
 
@@ -206,61 +220,56 @@ export default function App() {
         <div className="space-y-4">
           {searchTerm.length >= 2 && filteredResults.map((item) => (
             <div key={item.id} className="bg-white rounded-3xl p-5 shadow-sm border border-slate-100 animate-in fade-in slide-in-from-bottom-2">
-              <div className="flex items-center space-x-3 mb-4">
-                <div className="w-10 h-10 bg-blue-50 rounded-full flex items-center justify-center shrink-0">
+              <div className="flex items-start space-x-3 mb-4">
+                <div className="w-10 h-10 bg-blue-50 rounded-full flex items-center justify-center shrink-0 mt-1">
                   <User className="text-blue-600 w-5 h-5" />
                 </div>
-                <div className="overflow-hidden">
-                  <h3 className="font-black text-slate-800 uppercase truncate">{item.memberName}</h3>
-                  <p className="text-[10px] text-slate-500 font-bold uppercase">
-                    Upline: <span className="text-blue-600">{item.upline}</span>
-                  </p>
+                <div className="overflow-hidden flex-1">
+                  <h3 className="font-black text-slate-800 uppercase truncate leading-tight mb-1">{item.memberName}</h3>
+                  <div className="flex items-center space-x-1">
+                    <Users className="w-3 h-3 text-blue-400 shrink-0" />
+                    <p className="text-[10px] text-slate-500 font-bold uppercase truncate">
+                      Upline: <span className="text-blue-600">{item.upline}</span>
+                    </p>
+                  </div>
                 </div>
               </div>
 
-              <div 
-                onClick={() => handleCopy(item.accountNumber, item.id)} 
-                className="bg-slate-900 rounded-2xl p-4 mb-4 cursor-pointer active:scale-95 transition-all relative overflow-hidden group"
-              >
+              <div onClick={() => handleCopy(item.accountNumber, item.id)} className="bg-slate-900 rounded-2xl p-4 mb-4 cursor-pointer active:scale-[0.98] transition-all relative overflow-hidden group">
                 <div className="flex justify-between items-center relative z-10">
                   <div>
                     <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Account Number</span>
-                    <p className="text-xl font-mono font-bold text-white tracking-wider">
-                      {item.accountNumber || "NOT FOUND"}
-                    </p>
+                    <p className="text-xl font-mono font-bold text-white tracking-wider">{item.accountNumber || "NOT FOUND"}</p>
                   </div>
                   <div className={`p-2 rounded-xl transition-colors ${copiedId === item.id ? 'bg-green-500' : 'bg-slate-800 text-slate-400'}`}>
                     {copiedId === item.id ? <CheckCircle2 className="w-5 h-5 text-white" /> : <Copy className="w-5 h-5" />}
                   </div>
                 </div>
-                {copiedId === item.id && (
-                  <div className="absolute inset-0 bg-green-500/10 animate-pulse" />
-                )}
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-2 gap-3 mb-3">
                 <div className="bg-slate-50 rounded-2xl p-3 border border-slate-100">
                   <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Due Date</span>
-                  <div className="flex items-center text-sm font-bold text-slate-700 mt-1">
-                    <Calendar className="w-4 h-4 mr-2 text-blue-500" />
-                    {item.dueDate}
-                  </div>
+                  <div className="flex items-center text-sm font-bold text-slate-700 mt-1"><Calendar className="w-4 h-4 mr-2 text-blue-500" />{item.dueDate}</div>
                 </div>
                 <div className="bg-blue-50/50 rounded-2xl p-3 border border-blue-100">
                   <span className="text-[9px] font-black text-blue-400 uppercase tracking-widest text-right block">Amount Due</span>
-                  <div className="flex items-center justify-end text-lg font-black text-blue-700 mt-1">
-                    ₱{item.dueAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                  </div>
+                  <div className="flex items-center justify-end text-lg font-black text-blue-700 mt-1">₱{formatCurrency(item.dueAmount)}</div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="bg-green-50/50 rounded-2xl p-3 border border-green-100">
+                  <span className="text-[9px] font-black text-green-500 uppercase tracking-widest">Brochure Sales</span>
+                  <div className="flex items-center text-sm font-bold text-green-700 mt-1"><TrendingUp className="w-4 h-4 mr-2" />₱{formatCurrency(item.bps)}</div>
+                </div>
+                <div className="bg-red-50/50 rounded-2xl p-3 border border-red-100">
+                  <span className="text-[9px] font-black text-red-400 uppercase tracking-widest text-right block">Overdue</span>
+                  <div className="flex items-center justify-end text-sm font-bold text-red-700 mt-1"><ShieldAlert className="w-4 h-4 mr-2" />₱{formatCurrency(item.overdue)}</div>
                 </div>
               </div>
             </div>
           ))}
-          
-          {searchTerm.length >= 2 && filteredResults.length === 0 && (
-            <div className="text-center p-10 bg-white/50 rounded-3xl border border-dashed border-slate-200">
-              <p className="text-slate-400 font-bold uppercase text-xs tracking-widest">No results found</p>
-            </div>
-          )}
         </div>
       </div>
     </div>
