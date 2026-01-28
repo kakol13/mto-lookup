@@ -74,7 +74,7 @@ export default function App() {
         
         let headerRowIndex = -1;
         let baseColMap = { name: 1, date: 4, amount: 5, acct: 11, bps: 3, overdue: 7 };
-        let sponsorColIndices = []; // Track all columns that might contain sponsor info
+        let sponsorColIndices = []; 
 
         for (let i = 0; i < Math.min(jsonRows.length, 40); i++) {
           const row = jsonRows[i];
@@ -105,7 +105,6 @@ export default function App() {
             const overdueIdx = findColContains("amount overdue");
             if (overdueIdx !== -1) baseColMap.overdue = overdueIdx;
             
-            // Collect ALL columns that mention Sponsor or Upline
             lowerRow.forEach((cell, idx) => {
               if (cell.includes("sponsor") || cell.includes("upline")) {
                 sponsorColIndices.push(idx);
@@ -125,12 +124,9 @@ export default function App() {
               if (found) acct = String(found).trim();
             }
 
-            // SMART SPONSOR NAME LOOKUP:
-            // Look through all identified sponsor columns for the first one that contains text (not just a number)
             let sponsorVal = "N/A";
             for (let colIdx of sponsorColIndices) {
               const val = String(row[colIdx] || "").trim();
-              // Check if value exists, is not a number, and has at least one letter
               if (val && isNaN(Number(val)) && /[a-zA-Z]/.test(val)) {
                 sponsorVal = val;
                 break;
