@@ -1,7 +1,4 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { initializeApp } from 'firebase/app';
-import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from 'firebase/auth';
-import { getFirestore, doc, setDoc, onSnapshot } from 'firebase/firestore';
 import { 
   Search, 
   FileUp, 
@@ -21,15 +18,13 @@ import {
   Wallet
 } from 'lucide-react';
 
-// External Scripts
+// External Scripts for XLSX
 const XLSX_SCRIPT_URL = 'https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js';
 
-// Firebase Setup
-const firebaseConfig = JSON.parse(__firebase_config);
-const app = initializeApp(firebaseConfig);
-const auth = getAuth(app);
-const db = getFirestore(app);
-const appId = typeof __app_id !== 'undefined' ? __app_id : 'mto-lookup-app';
+// Firebase Scripts - We load these via Script tags to avoid "Dynamic Require" errors in environments that don't support ESM imports in the build step
+const FIREBASE_APP_URL = 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js';
+const FIREBASE_AUTH_URL = 'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js';
+const FIREBASE_FIRESTORE_URL = 'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js';
 
 export default function App() {
   const [user, setUser] = useState(null);
@@ -40,35 +35,33 @@ export default function App() {
   const [isUploading, setIsUploading] = useState(false);
   const [copiedId, setCopiedId] = useState(null);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [firebaseReady, setFirebaseReady] = useState(false);
+
+  // References to global firebase objects (compat version)
+  const [db, setDb] = useState(null);
+  const [auth, setAuth] = useState(null);
+
+  const appId = typeof __app_id !== 'undefined' ? __app_id : 'mto-lookup-app';
 
   // Helper for formatting date to MM/DD/YYYY
   const formatAsMMDDYYYY = (dateInput) => {
     let date;
-    
-    // Handle Excel Date objects
     if (dateInput instanceof Date) {
       date = dateInput;
-    } 
-    // Handle string/number inputs like "20231225" or "2023-12-25"
-    else if (dateInput) {
+    } else if (dateInput) {
       const strDate = String(dateInput).trim();
-      
-      // Check if it's in YYYYMMDD format (8 digits)
       if (/^\d{8}$/.test(strDate)) {
         const y = strDate.substring(0, 4);
         const m = strDate.substring(4, 6);
         const d = strDate.substring(6, 8);
         return `${m}/${d}/${y}`;
       }
-      
       const parsed = new Date(strDate);
-      if (!isNaN(parsed.getTime())) {
-        date = parsed;
-      }
+      if (!isNaN(parsed.getTime())) date = parsed;
     }
 
     if (!date || isNaN(date.getTime())) {
-      return cleanVal(dateInput) || "N/A";
+      return (dateInput === null || dateInput === undefined) ? "N/A" : String(dateInput).trim();
     }
 
     const mm = String(date.getMonth() + 1).padStart(2, '0');
@@ -77,37 +70,68 @@ export default function App() {
     return `${mm}/${dd}/${yyyy}`;
   };
 
+  const loadScript = (url) => {
+    return new Promise((resolve, reject) => {
+      if (document.querySelector(`script[src="${url}"]`)) return resolve();
+      const script = document.createElement('script');
+      script.src = url;
+      script.async = true;
+      script.onload = resolve;
+      script.onerror = reject;
+      document.head.appendChild(script);
+    });
+  };
+
   useEffect(() => {
-    const initAuth = async () => {
+    const initAll = async () => {
       try {
-        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-          await signInWithCustomToken(auth, __initial_auth_token);
-        } else {
-          await signInAnonymously(auth);
+        // Load XLSX and Firebase Compat SDKs
+        await Promise.all([
+          loadScript(XLSX_SCRIPT_URL),
+          loadScript(FIREBASE_APP_URL)
+        ]);
+        // Auth and Firestore depend on App
+        await Promise.all([
+          loadScript(FIREBASE_AUTH_URL),
+          loadScript(FIREBASE_FIRESTORE_URL)
+        ]);
+
+        const firebaseConfig = JSON.parse(__firebase_config);
+        // Use compat versions to avoid import issues
+        if (!window.firebase.apps.length) {
+          window.firebase.initializeApp(firebaseConfig);
         }
+        
+        const firebaseAuth = window.firebase.auth();
+        const firebaseDb = window.firebase.firestore();
+        
+        setAuth(firebaseAuth);
+        setDb(firebaseDb);
+
+        // Handle Auth
+        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+          await firebaseAuth.signInWithCustomToken(__initial_auth_token);
+        } else {
+          await firebaseAuth.signInAnonymously();
+        }
+
+        firebaseAuth.onAuthStateChanged(setUser);
+        setFirebaseReady(true);
       } catch (err) {
-        console.error("Auth failed", err);
+        console.error("Initialization failed", err);
       }
     };
-    initAuth();
-    const unsubscribe = onAuthStateChanged(auth, setUser);
-
-    if (!window.XLSX) {
-      const script = document.createElement('script');
-      script.src = XLSX_SCRIPT_URL;
-      script.async = true;
-      document.head.appendChild(script);
-    }
-
-    return () => unsubscribe();
+    initAll();
   }, []);
 
   useEffect(() => {
-    if (!user) return;
-    const reportRef = doc(db, 'artifacts', appId, 'public', 'data', 'reports', 'latest');
+    if (!user || !db) return;
     
-    const unsubscribe = onSnapshot(reportRef, (docSnap) => {
-      if (docSnap.exists()) {
+    // Path: /artifacts/{appId}/public/data/reports/latest
+    const reportRef = db.doc(`artifacts/${appId}/public/data/reports/latest`);
+    
+    const unsubscribe = reportRef.onSnapshot((docSnap) => {
+      if (docSnap.exists) {
         const report = docSnap.data();
         setData(report.items || []);
         const dateObj = report.updatedAt?.toDate();
@@ -122,7 +146,7 @@ export default function App() {
     });
 
     return () => unsubscribe();
-  }, [user]);
+  }, [user, db]);
 
   const cleanVal = (v) => {
     if (v === null || v === undefined) return "";
@@ -131,7 +155,7 @@ export default function App() {
 
   const handleFileUpload = (e) => {
     const file = e.target.files[0];
-    if (!file || !window.XLSX || !user) return;
+    if (!file || !window.XLSX || !user || !db) return;
     setIsUploading(true);
 
     const reader = new FileReader();
@@ -156,8 +180,8 @@ export default function App() {
             upl: cleanVal(r[M.upl] || "N/A")
           }));
 
-        const reportRef = doc(db, 'artifacts', appId, 'public', 'data', 'reports', 'latest');
-        await setDoc(reportRef, {
+        const reportRef = db.doc(`artifacts/${appId}/public/data/reports/latest`);
+        await reportRef.set({
           items: formatted,
           updatedAt: new Date(),
           uploaderId: user.uid
@@ -179,7 +203,7 @@ export default function App() {
     return data.filter(d => d.name.toLowerCase().includes(term)).slice(0, 30);
   }, [data, searchTerm]);
 
-  if (isLoading) {
+  if (isLoading || !firebaseReady) {
     return (
       <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center text-white p-6">
         <Loader2 className="w-12 h-12 text-indigo-500 animate-spin mb-4" />
@@ -199,7 +223,7 @@ export default function App() {
             <div className="flex items-center mt-2 space-x-2">
               <Cloud className="w-3 h-3 text-indigo-300" />
               <p className="text-[9px] font-bold text-indigo-200 uppercase tracking-widest">
-                Updated: {lastUpdated ? String(lastUpdated) : "Never"}
+                Updated: {lastUpdated || "Never"}
               </p>
             </div>
           </div>
@@ -225,7 +249,6 @@ export default function App() {
                 </p>
               </div>
             </div>
-            <p className="text-[9px] text-slate-400 mt-3 text-center uppercase font-bold">Updates everyone instantly.</p>
           </div>
         )}
 
@@ -268,7 +291,12 @@ export default function App() {
 
                 <div 
                   onClick={() => {
-                    const t = document.createElement('textarea'); t.value = item.acct; document.body.appendChild(t); t.select(); document.execCommand('copy'); document.body.removeChild(t);
+                    const text = item.acct;
+                    if (navigator.clipboard && navigator.clipboard.writeText) {
+                      navigator.clipboard.writeText(text);
+                    } else {
+                      const t = document.createElement('textarea'); t.value = text; document.body.appendChild(t); t.select(); document.execCommand('copy'); document.body.removeChild(t);
+                    }
                     setCopiedId(item.id); setTimeout(() => setCopiedId(null), 1500);
                   }}
                   className="bg-slate-900 rounded-[24px] p-5 flex justify-between items-center cursor-pointer hover:bg-slate-800 transition-all active:scale-95"
