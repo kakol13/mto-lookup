@@ -71,7 +71,7 @@
                 
                 const strVal = String(val).trim();
                 
-                // Handle YYYYMMDD (8 digits) format directly
+                // Handle YYYYMMDD (8 digits) format directly by slicing
                 if (/^\d{8}$/.test(strVal)) {
                     const y = strVal.substring(0, 4);
                     const m = strVal.substring(4, 6);
@@ -79,7 +79,7 @@
                     return `${m}/${d}/${y}`;
                 }
                 
-                // Fallback for JS Date objects (SheetJS cellDates: true)
+                // Handle JS Date objects if SheetJS returns them
                 if (val instanceof Date) {
                     const month = String(val.getMonth() + 1).padStart(2, '0');
                     const day = String(val.getDate()).padStart(2, '0');
@@ -91,7 +91,7 @@
                     return strVal;
                 }
 
-                return strVal; // Return raw if we can't identify it
+                return strVal; // Return raw if we can't identify a specific format
             };
 
             useEffect(() => {
@@ -124,6 +124,8 @@
                         setData(r.items || []);
                         setLastUpdated(r.updatedAt?.toDate().toLocaleString());
                     }
+                }, (error) => {
+                    console.error("Firestore error:", error);
                 });
                 return () => unsubscribe();
             }, [db, user]);
@@ -137,7 +139,7 @@
                 reader.onload = async (evt) => {
                     try {
                         const dataArr = new Uint8Array(evt.target.result);
-                        // We set cellDates to false to get raw strings for YYYYMMDD parsing
+                        // CellDates set to false to treat input as raw string/numbers
                         const wb = window.XLSX.read(dataArr, { type: 'array', cellDates: false });
                         const sheet = wb.Sheets[wb.SheetNames[0]];
                         const raw = window.XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" });
@@ -157,12 +159,14 @@
                                 upl: String(r[M.upl] || "N/A").trim()
                             }));
 
-                        await db.doc(`artifacts/${appId}/public/data/reports/latest`).set({
-                            items: formatted,
-                            updatedAt: new Date(),
-                            uploaderId: user?.uid || "admin-manual"
-                        });
-                        setUploadStatus('success');
+                        if (user) {
+                            await db.doc(`artifacts/${appId}/public/data/reports/latest`).set({
+                                items: formatted,
+                                updatedAt: new Date(),
+                                uploaderId: user.uid
+                            });
+                            setUploadStatus('success');
+                        }
                     } catch (err) {
                         console.error(err);
                         setUploadStatus('error');
@@ -178,7 +182,7 @@
                 return t.length < 2 ? [] : data.filter(d => d.name.toLowerCase().includes(t)).slice(0, 25);
             }, [data, searchTerm]);
 
-            if (isLoading) return <div className="min-h-screen bg-slate-900 flex items-center justify-center text-white font-black italic tracking-widest">SYNCING DATA...</div>;
+            if (isLoading) return <div className="min-h-screen bg-slate-900 flex items-center justify-center text-white font-black italic tracking-widest uppercase">Syncing Data...</div>;
 
             return (
                 <div className="min-h-screen pb-20">
@@ -196,7 +200,7 @@
 
                         {showPinModal && (
                             <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
-                                <div className="bg-white rounded-[32px] p-8 w-full max-w-xs shadow-2xl scale-in-center">
+                                <div className="bg-white rounded-[32px] p-8 w-full max-w-xs shadow-2xl">
                                     <form onSubmit={(e) => { e.preventDefault(); if(pinInput === CORRECT_PIN) {setIsAdmin(true); setShowPinModal(false);} else {setPinInput('');} }}>
                                         <input type="password" value={pinInput} onChange={e => setPinInput(e.target.value)} placeholder="PIN" className="w-full text-center text-2xl font-black p-4 bg-slate-50 rounded-2xl mb-4 outline-none border-2 focus:border-indigo-500" />
                                         <button type="submit" className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-black uppercase text-xs shadow-lg shadow-indigo-100">Login</button>
@@ -207,7 +211,7 @@
                         )}
 
                         {isAdmin && (
-                            <div className="bg-white rounded-[32px] p-6 shadow-2xl border-4 border-indigo-500 space-y-4 animate-in slide-in-from-top-4">
+                            <div className="bg-white rounded-[32px] p-6 shadow-2xl border-4 border-indigo-500 space-y-4">
                                 <div className="flex justify-between items-center">
                                     <h2 className="text-xs font-black uppercase text-indigo-600">Admin Control Panel</h2>
                                     {debugRows && (
@@ -265,7 +269,7 @@
 
                         <div className="space-y-4">
                             {filtered.map(item => (
-                                <div key={item.id} className="bg-white rounded-[32px] p-6 shadow-md border border-slate-100 animate-in fade-in slide-in-from-bottom-2">
+                                <div key={item.id} className="bg-white rounded-[32px] p-6 shadow-md border border-slate-100">
                                     <div className="flex items-center space-x-3 mb-4">
                                         <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center text-white shadow-lg shadow-indigo-100"><Icons.User /></div>
                                         <div>
